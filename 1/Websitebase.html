@@ -7,22 +7,23 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div id="playerStats">
+  <div class="game-layout">
+    <div class="statsColumn">
+      <div class="statBox">
         <h2>Player Stats</h2>
-        <p id="playerName"></p>
-        <p id="playerHP"></p>
-        <p id="playerAtkPower"></p>
-        <p id="playerSpeed"></p>
-        <p id="playerPotions"></p>
-  </div>
-  <div id="log"></div>
-  <div id="enemyStats">
-        <p id="enemyName"></p>
-        <p id="enemyHP"></p>
-        <p id="enemyAtkPower"></p>
-        <p id="enemySpeed"></p>
-  </div>
-  <div id="buttonContainer">
+        <div id="playerStats">Enter your name to begin.</div>
+      </div>
+    </div>
+
+    <div class="game-main">
+      <div id="log">
+        <form name="introForm">
+          <input name="Username" placeholder="Enter your name">
+          <button type="submit">Start Game</button>
+        </form>
+      </div>
+
+      <div id="buttonContainer">
         <button id="moveBtn">Move</button>
         <button id="attackBtn">Attack</button>
         <button id="healBtn">Heal</button>
@@ -31,8 +32,17 @@
         <button id="unequipBtn">Unequip</button>
         <button id="lootBtn">Search</button>
         <button id="restartBtn">Restart Game</button>
-  </div> 
-       
+      </div>
+    </div>
+
+    <div class="statsColumn">
+      <div class="statBox">
+        <h2>Enemy Stats</h2>
+        <div id="enemyStats">No enemy detected.</div>
+      </div>
+    </div>
+  </div>
+
   <script src="Textbase.js"></script>
 </body>
 </html>

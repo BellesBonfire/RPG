@@ -15,12 +15,42 @@ const unequipBtn = document.getElementById("unequipBtn");
 const restartBtn = document.getElementById("restartBtn");
 const playerStats = document.getElementById("playerStats");
 const enemyStats = document.getElementById("enemyStats");
+const introForm = document.introForm
+
+// Button - click event - HAS to click
+// submit - forms - user can click button or hit enter
+
+const actionButtons = [moveBtn, attackBtn, healBtn, inventoryBtn, lootBtn, equipBtn, unequipBtn];
+
+function setActionButtonsEnabled(enabled) {
+  actionButtons.forEach((button) => {
+    button.disabled = !enabled;
+  });
+}
+
+introForm.addEventListener("submit", function(event){
+  event.preventDefault();
+
+  const enteredName = introForm.Username.value.trim();
+  if (!enteredName) {
+    createMessage("Please enter your name before starting.");
+    return;
+  }
+
+  player.name = enteredName;
+  introForm.style.display = "none"; // Hide the form after submission
+  introForm.reset();
+  setActionButtonsEnabled(true);
+  updateplayerStats();
+  startGame();
+})
 
 // Hide loot, equip, unequip, and restart buttons initially
 lootBtn.style.display = "none";
 equipBtn.style.display = "none";
 unequipBtn.style.display = "none";
 restartBtn.style.display = "none";
+setActionButtonsEnabled(false);
 
 let isGameOver = false;
 
@@ -140,12 +170,12 @@ const dragonClaw = new Item("Dragon Claw", "A sharp claw", "speed", 15);
 const potion = new Item("Potion", "Heals 15 HP", "hp", 15);
 //const boots = new Item('Boots', 'Increases speed', 'speed', 5)
 
-const player = new Character("John", 100, 15, 15, [sword, potion]);
+const player = new Character("Adventurer", 100, 15, 15, [sword, potion, potion]);
 
-const kobold = new Character("Kobold", 10, 5, 10, [dagger]);
-const goblin = new Character("Goblin", 20, 10, 10, [club]);
-const orc = new Character("Orc", 30, 15, 20, [axe]);
-const dragon = new Character("Dragon", 100, 20, 50, [dragonClaw]);
+const kobold = new Character("Kobold", 10, 5, 10, [dagger, potion]);
+const goblin = new Character("Goblin", 20, 10, 10, [club, potion]);
+const orc = new Character("Orc", 30, 15, 20, [axe, potion]);
+const dragon = new Character("Dragon", 100, 20, 50, [dragonClaw, potion, potion, potion]);
 
 const enemies = [kobold, goblin, orc, dragon];
 let enemy = null;
@@ -158,13 +188,28 @@ function updateplayerStats() {
   const totalItems = Object.keys(player.inventory).length;
   const potionCount = player.getItemQuantity("Potion");
   const equippedItems = Object.values(player.equipped).flat().map(item => item.name).join(", ") || "None";
-  playerHealth.textContent = `HP: ${player.hp}/${player.maxHp} | Attack Power: ${player.getAttackPwr()} | Speed: ${player.getSpeed()} | Equipped: ${equippedItems} | Items: ${totalItems} | Potions: ${potionCount}`;
+  playerHealth.innerHTML = `
+    <div><strong>Name:</strong> ${player.name}</div>
+    <div><strong>HP:</strong> ${player.hp}/${player.maxHp}</div>
+    <div><strong>Attack:</strong> ${player.getAttackPwr()}</div>
+    <div><strong>Speed:</strong> ${player.getSpeed()}</div>
+    <div><strong>Equipped:</strong> ${equippedItems}</div>
+    <div><strong>Items:</strong> ${totalItems}</div>
+    <div><strong>Potions:</strong> ${potionCount}</div>
+  `;
 }
 
 function updateEnemyStats() {
   const enemyStats = document.getElementById("enemyStats");
   if (enemy) {
-    enemyStats.textContent = `HP: ${enemy.hp} | Attack Power: ${enemy.getAttackPwr()} | Speed: ${enemy.getSpeed()}`;
+    enemyStats.innerHTML = `
+      <div><strong>Name:</strong> ${enemy.name}</div>
+      <div><strong>HP:</strong> ${enemy.hp}</div>
+      <div><strong>Attack:</strong> ${enemy.getAttackPwr()}</div>
+      <div><strong>Speed:</strong> ${enemy.getSpeed()}</div>
+    `;
+  } else {
+    enemyStats.innerHTML = "No enemy detected.";
   }
 }
 
@@ -174,6 +219,11 @@ function updateLootButtonVisibility() {
   } else {
     lootBtn.style.display = "none";
   }
+}
+
+function setEquipmentButtonsVisible(visible) {
+  equipBtn.style.display = visible ? "inline-block" : "none";
+  unequipBtn.style.display = visible ? "inline-block" : "none";
 }
 
 function handleMove() {
@@ -283,6 +333,14 @@ function handleAttack(enemy) {
 }
 
 function handleInventory() {
+  const equipmentButtonsVisible = equipBtn.style.display === "inline-block" || unequipBtn.style.display === "inline-block";
+
+  if (equipmentButtonsVisible) {
+    setEquipmentButtonsVisible(false);
+    createMessage("Inventory closed.");
+    return;
+  }
+
   let msg = `You have ${Object.keys(player.inventory).length} item type(s):`;
   createMessage(msg);
   let index = 1;
@@ -296,8 +354,7 @@ function handleInventory() {
     index++;
   }
   // Show equip/unequip buttons when viewing inventory
-  equipBtn.style.display = "inline-block";
-  unequipBtn.style.display = "inline-block";
+  setEquipmentButtonsVisible(true);
 }
 function handleHeal() {
   // Check if player has potions
@@ -362,7 +419,7 @@ function handleLoot() {
 
 function startGame() {
   createMessage(
-    "Welcome Adventurer! You are about to embark on a journey through the forest. Beware of the creatures that lurk in the shadows!",
+    `Welcome, ${player.name}! You are about to embark on a journey through the forest. Beware of the creatures that lurk in the shadows!`,
   );
   updateplayerStats();
 }
@@ -372,15 +429,13 @@ function handleEquip() {
   const inventorySize = Object.keys(player.inventory).length;
   if (inventorySize === 0) {
     createMessage("You have no items to equip!");
-    equipBtn.style.display = "none";
-    unequipBtn.style.display = "none";
+    setEquipmentButtonsVisible(false);
     return;
   }
   
   const indexInput = prompt(`Enter item number to equip (1-${inventorySize})`);
   if (indexInput === null) {
-    equipBtn.style.display = "none";
-    unequipBtn.style.display = "none";
+    setEquipmentButtonsVisible(false);
     return;
   }
   
@@ -398,15 +453,13 @@ function handleEquip() {
   
   if (!itemName) {
     createMessage("Item not found!");
-    equipBtn.style.display = "none";
-    unequipBtn.style.display = "none";
+    setEquipmentButtonsVisible(false);
     return;
   }
   
   if (itemName === "Potion") {
     createMessage("You can't equip potions!");
-    equipBtn.style.display = "none";
-    unequipBtn.style.display = "none";
+    setEquipmentButtonsVisible(false);
     return;
   }
   
@@ -414,24 +467,21 @@ function handleEquip() {
   player.equip(item);
   createMessage(`${item.name} equipped! +${item.effectValue} ${item.effectProperty}`);
   updateplayerStats();
-  equipBtn.style.display = "none";
-  unequipBtn.style.display = "none";
+  setEquipmentButtonsVisible(false);
 }
 
 function handleUnequip() {
   const equippedList = Object.values(player.equipped).flat();
   if (equippedList.length === 0) {
     createMessage("You have nothing equipped!");
-    equipBtn.style.display = "none";
-    unequipBtn.style.display = "none";
+    setEquipmentButtonsVisible(false);
     return;
   }
   
   const inventorySize = Object.keys(player.inventory).length;
   const indexInput = prompt(`Enter item number to unequip (1-${inventorySize})`);
   if (indexInput === null) {
-    equipBtn.style.display = "none";
-    unequipBtn.style.display = "none";
+    setEquipmentButtonsVisible(false);
     return;
   }
   
@@ -449,8 +499,7 @@ function handleUnequip() {
   
   if (!itemName) {
     createMessage("Item not found!");
-    equipBtn.style.display = "none";
-    unequipBtn.style.display = "none";
+    setEquipmentButtonsVisible(false);
     return;
   }
   
@@ -458,8 +507,7 @@ function handleUnequip() {
   player.unequip(item);
   createMessage(`${item.name} unequipped!`);
   updateplayerStats();
-  equipBtn.style.display = "none";
-  unequipBtn.style.display = "none";
+  setEquipmentButtonsVisible(false);
 }
 
 function handleGameOver() {
@@ -519,14 +567,11 @@ function handleRestart() {
   // Hide restart button and extra buttons
   restartBtn.style.display = "none";
   lootBtn.style.display = "none";
-  equipBtn.style.display = "none";
-  unequipBtn.style.display = "none";
+  setEquipmentButtonsVisible(false);
   
   // Start new game
   startGame();
 }
-
-startGame(); 
 
 moveBtn.addEventListener("click", handleMove);
 restartBtn.addEventListener("click", handleRestart);
