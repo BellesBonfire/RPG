@@ -10,22 +10,116 @@ const attackBtn = document.getElementById("attackBtn");
 const inventoryBtn = document.getElementById("inventoryBtn");
 const healBtn = document.getElementById("healBtn");
 const lootBtn = document.getElementById("lootBtn");
-const equipBtn = document.getElementById("equipBtn");
-const unequipBtn = document.getElementById("unequipBtn");
 const restartBtn = document.getElementById("restartBtn");
 const playerStats = document.getElementById("playerStats");
 const enemyStats = document.getElementById("enemyStats");
+const inventoryPanel = document.getElementById("inventoryPanel");
+const inventoryItems = document.getElementById("inventoryItems");
+const equippedItemsPanel = document.getElementById("equippedItems");
+const closeInventoryBtn = document.getElementById("closeInventoryBtn");
 const introForm = document.introForm
 
 // Button - click event - HAS to click
 // submit - forms - user can click button or hit enter
 
-const actionButtons = [moveBtn, attackBtn, healBtn, inventoryBtn, lootBtn, equipBtn, unequipBtn];
+const actionButtons = [moveBtn, attackBtn, healBtn, inventoryBtn, lootBtn];
 
 function setActionButtonsEnabled(enabled) {
   actionButtons.forEach((button) => {
     button.disabled = !enabled;
   });
+}
+
+function isItemEquipped(item) {
+  return Object.values(player.equipped).flat().includes(item);
+}
+
+function getEquippedItemNames() {
+  const equipped = Object.values(player.equipped).flat();
+  return equipped.length ? equipped.map(item => item.name) : [];
+}
+
+function handleInventoryItemClick(itemName) {
+  const item = player.getItem(itemName);
+  if (!item) return;
+
+  if (item.effectProperty === 'hp') {
+    createMessage("Potions can't be equipped. Use them in battle from your item list.");
+    return;
+  }
+
+  const alreadyEquipped = isItemEquipped(item);
+  if (alreadyEquipped) {
+    player.unequip(item);
+    createMessage(`${item.name} unequipped.`);
+  } else {
+    if (item.effectProperty === 'attackPwr') {
+      const prevWeapons = player.equipped.attackPwr ? [...player.equipped.attackPwr] : [];
+      if (prevWeapons.length > 0) {
+        prevWeapons.forEach(w => player.unequip(w));
+        createMessage(`Unequipped ${prevWeapons.map(w => w.name).join(', ')}.`);
+      }
+    }
+    player.equip(item);
+    createMessage(`${item.name} equipped! +${item.effectValue} ${item.effectProperty}`);
+  }
+
+  updateplayerStats();
+  renderInventoryUI();
+}
+
+function handleTrashItem(itemName) {
+  const item = player.getItem(itemName);
+  if (!item) return;
+
+  if (isItemEquipped(item)) {
+    player.unequip(item);
+    createMessage(`${item.name} was unequipped before trashing.`);
+  }
+
+  player.removeItem(itemName, 1);
+  createMessage(`${item.name} was trashed.`);
+  updateplayerStats();
+  renderInventoryUI();
+}
+
+function renderInventoryUI() {
+  inventoryItems.innerHTML = '';
+  const inventoryKeys = Object.keys(player.inventory);
+
+  if (inventoryKeys.length === 0) {
+    inventoryItems.innerHTML = '<div class="inventory-empty">Your inventory is empty.</div>';
+  } else {
+    inventoryKeys.forEach((itemName) => {
+      const data = player.inventory[itemName];
+      const item = data.item;
+      const isEquipped = isItemEquipped(item);
+      const card = document.createElement('div');
+      card.className = `inventory-card${isEquipped ? ' equipped' : ''}`;
+      card.dataset.itemName = itemName;
+      card.innerHTML = `
+        <div class="item-name">${item.name}${data.quantity > 1 ? ` x${data.quantity}` : ''}</div>
+        <div class="item-meta">${item.description}</div>
+        <div class="item-meta">Type: ${item.effectProperty}${item.effectProperty !== 'hp' ? ` +${item.effectValue}` : ''}</div>
+        <div class="item-status">${item.effectProperty === 'hp' ? 'Potions cannot be equipped' : isEquipped ? 'Click to unequip' : 'Click to equip'}</div>
+        <button type="button" class="trash-button" data-trash-item="${itemName}">Trash</button>
+      `;
+      card.addEventListener('click', () => handleInventoryItemClick(itemName));
+      const trashButton = card.querySelector('.trash-button');
+      trashButton.addEventListener('click', (event) => {
+        event.stopPropagation();
+        if (confirm(`Trash ${item.name}? This will permanently remove one from your inventory.`)) {
+          handleTrashItem(itemName);
+        } else {
+          createMessage(`${item.name} was not trashed.`);
+        }
+      });
+      inventoryItems.append(card);
+    });
+  }
+
+  const equippedNames = getEquippedItemNames();
+  equippedItemsPanel.innerHTML = `<strong>Equipped:</strong> ${equippedNames.length ? equippedNames.join(', ') : 'None'}`;
 }
 
 introForm.addEventListener("submit", function(event){
@@ -45,10 +139,8 @@ introForm.addEventListener("submit", function(event){
   startGame();
 })
 
-// Hide loot, equip, unequip, and restart buttons initially
+// Hide loot and restart buttons initially
 lootBtn.style.display = "none";
-equipBtn.style.display = "none";
-unequipBtn.style.display = "none";
 restartBtn.style.display = "none";
 setActionButtonsEnabled(false);
 
@@ -142,7 +234,7 @@ class Character {
 
   calculateXpToNext() {
     // slower XP curve: require more XP per level
-    return 250 * this.level;
+    return 150 * this.level;
   }
 
   recalcStatsForLevel() {
@@ -215,19 +307,83 @@ const axe = new Item("Axe", "A heavy blade", "attackPwr", 7);
 const club = new Item("Club", "A blunt weapon", "attackPwr", 4);
 const dragonClaw = new Item("Dragon Claw", "A sharp claw", "speed", 15);
 const potion = new Item("Potion", "Heals 15 HP", "hp", 15);
-//const boots = new Item('Boots', 'Increases speed', 'speed', 5)
+const leatherBoots = new Item("Leather Boots", "Light boots that increase speed", "speed", 4);
+const wingedBoots = new Item("Winged Boots", "Boots that add quickness", "speed", 8);
+const steelSword = new Item("Steel Sword", "A sturdier sword", "attackPwr", 6);
+const battleAxe = new Item("Battle Axe", "A heavy battle axe", "attackPwr", 9);
 
-const player = new Character("Adventurer", 100, 15, 15, [sword, potion, potion], 1, true);
+const lootTemplates = {
+  weapons: [
+    { name: "Rusty Dagger", description: "A cheap dagger.", effectProperty: "attackPwr", effectValue: 2, minLevel: 1, maxLevel: 2 },
+    { name: "Iron Club", description: "A club with a little extra heft.", effectProperty: "attackPwr", effectValue: 4, minLevel: 1, maxLevel: 3 },
+    { name: "Steel Sword", description: "A sturdier sword.", effectProperty: "attackPwr", effectValue: 6, minLevel: 2, maxLevel: 5 },
+    { name: "Battle Axe", description: "A heavy battle axe.", effectProperty: "attackPwr", effectValue: 9, minLevel: 4, maxLevel: 10 },
+  ],
+  accessories: [
+    { name: "Leather Boots", description: "Light boots that increase speed.", effectProperty: "speed", effectValue: 4, minLevel: 1, maxLevel: 3 },
+    { name: "Winged Boots", description: "Boots that add quickness.", effectProperty: "speed", effectValue: 8, minLevel: 3, maxLevel: 6 },
+    { name: "Dragon Claw", description: "A sharp claw offering a speed boost.", effectProperty: "speed", effectValue: 15, minLevel: 5, maxLevel: 10 },
+  ],
+};
+
+function randomChoice(array) {
+  return array[Math.floor(Math.random() * array.length)];
+}
+
+function randomBetween(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function cloneItemTemplate(template) {
+  return new Item(template.name, template.description, template.effectProperty, template.effectValue);
+}
+
+function getLootPool(level, category) {
+  return lootTemplates[category].filter(item => level >= item.minLevel && level <= item.maxLevel || level >= item.maxLevel);
+}
+
+function generateLootForEnemy(enemy, playerLevel) {
+  const loot = [];
+  const level = Math.min(Math.max(playerLevel, 1), 10);
+  const weaponPool = getLootPool(level, 'weapons');
+  const accessoryPool = getLootPool(level, 'accessories');
+
+  const dropCount = enemy.name === 'Kobold' ? randomBetween(1, 2) : enemy.name === 'Goblin' ? randomBetween(1, 2) : enemy.name === 'Orc' ? randomBetween(2, 3) : randomBetween(1, 2);
+
+  for (let i = 0; i < dropCount; i++) {
+    if (Math.random() < 0.7 && weaponPool.length > 0) {
+      loot.push(cloneItemTemplate(randomChoice(weaponPool)));
+    } else if (accessoryPool.length > 0) {
+      loot.push(cloneItemTemplate(randomChoice(accessoryPool)));
+    }
+  }
+
+  if (Math.random() < 0.8) {
+    loot.push(cloneItemTemplate({ name: 'Potion', description: 'Heals 15 HP', effectProperty: 'hp', effectValue: 15 }));
+  }
+
+  if (loot.length === 0) {
+    loot.push(cloneItemTemplate(randomChoice(weaponPool.length ? weaponPool : lootTemplates.weapons)));
+  }
+
+  return loot;
+}
+
+const player = new Character("Adventurer", 100, 15, 15, [sword, potion, potion, dragonClaw], 1, true);
 
 // Assign levels to enemies so stronger foes appear later
 const kobold = new Character("Kobold", 10, 5, 10, [dagger, potion], 1);
 kobold.minLevel = 1; kobold.maxLevel = 2; kobold.evolveAfter = false;
+kobold.lootType = 'weak';
 const goblin = new Character("Goblin", 20, 10, 10, [club, potion], 2);
 goblin.minLevel = 2; goblin.maxLevel = 4; goblin.evolveAfter = true;
+goblin.lootType = 'medium';
 const orc = new Character("Orc", 30, 15, 20, [axe, potion], 3);
 orc.minLevel = 3; orc.maxLevel = 6; orc.evolveAfter = true;
+orc.lootType = 'strong';
 const dragon = new Character("Dragon", 100, 20, 50, [dragonClaw, potion, potion, potion], 6);
 dragon.minLevel = 6; dragon.maxLevel = 10; dragon.evolveAfter = false;
+dragon.lootType = 'boss';
 
 const enemies = [kobold, goblin, orc, dragon];
 let enemy = null;
@@ -284,23 +440,16 @@ function updateLootButtonVisibility() {
 
 function updateActionButtonStates() {
   // Move available when not in encounter and no defeated enemy waiting
-  moveBtn.disabled = isGameOver || inEncounter || Boolean(defeatedEnemy);
-  // Attack only when in encounter
-  attackBtn.disabled = isGameOver || !inEncounter;
+  // Keep move clickable so handler can show a warning when blocked by encounter
+  moveBtn.disabled = isGameOver || Boolean(defeatedEnemy);
+  // Allow clicking Attack at all times so handler can notify when there's nothing to attack
+  attackBtn.disabled = isGameOver;
   // Heal when player has potions and not at full HP
   healBtn.disabled = isGameOver || player.getItemQuantity('Potion') === 0 || player.hp === player.maxHp;
   // Inventory always allowed unless game over
   inventoryBtn.disabled = !!isGameOver;
-  // Equip/unequip handled separately when inventory shown
-  equipBtn.disabled = isGameOver;
-  unequipBtn.disabled = isGameOver;
   // Loot only when defeated enemy exists
   lootBtn.disabled = isGameOver || !defeatedEnemy;
-}
-
-function setEquipmentButtonsVisible(visible) {
-  equipBtn.style.display = visible ? "inline-block" : "none";
-  unequipBtn.style.display = visible ? "inline-block" : "none";
 }
 
 function handleMove() {
@@ -355,6 +504,7 @@ function handleMove() {
 function handleEncounter(enemy) {
   // Reset enemy HP to their max (accounts for level scaling)
   enemy.hp = enemy.maxHp;
+  enemy.lootItems = generateLootForEnemy(enemy, player.level);
   createMessage(`${enemy.name} comes at you!`);
   inEncounter = true;
   updateActionButtonStates();
@@ -434,28 +584,16 @@ function handleAttack(enemy) {
 }
 
 function handleInventory() {
-  const equipmentButtonsVisible = equipBtn.style.display === "inline-block" || unequipBtn.style.display === "inline-block";
-
-  if (equipmentButtonsVisible) {
-    setEquipmentButtonsVisible(false);
-    createMessage("Inventory closed.");
+  const isOpen = !inventoryPanel.classList.contains('hidden');
+  if (isOpen) {
+    inventoryPanel.classList.add('hidden');
+    createMessage('Inventory closed.');
     return;
   }
 
-  let msg = `You have ${Object.keys(player.inventory).length} item type(s):`;
-  createMessage(msg);
-  let index = 1;
-  for (let itemName in player.inventory) {
-    const data = player.inventory[itemName];
-    const item = data.item;
-    const isEquipped = Object.values(player.equipped).flat().includes(item);
-    const status = isEquipped ? " [EQUIPPED]" : "";
-    const qty = data.quantity > 1 ? ` x${data.quantity}` : "";
-    createMessage(`${index}. ${item.name}${qty} - ${item.description}${status}`);
-    index++;
-  }
-  // Show equip/unequip buttons when viewing inventory
-  setEquipmentButtonsVisible(true);
+  renderInventoryUI();
+  inventoryPanel.classList.remove('hidden');
+  createMessage('Inventory opened. Click an item to equip or unequip it.');
 }
 function handleHeal() {
   // Check if player has potions
@@ -492,28 +630,29 @@ function handleLoot() {
   }
 
   const lootedItems = [];
-  
-  // Transfer all items from defeated enemy to player (stacked)
-  for (let itemName in defeatedEnemy.inventory) {
-    const data = defeatedEnemy.inventory[itemName];
-    const item = data.item;
-    const quantity = data.quantity;
-    
-    player.addItem(item, quantity);
-    lootedItems.push(`${item.name} x${quantity}`);
-    
-    // Auto-equip weapons (not potions)
-    if (item.name !== "Potion" && !Object.values(player.equipped).flat().includes(item)) {
-      player.equip(item);
+  const lootItems = defeatedEnemy.lootItems || [];
+
+  lootItems.forEach((item) => {
+    player.addItem(item, 1);
+    lootedItems.push(item.name);
+
+    const alreadyEquipped = isItemEquipped(item);
+    if (item.name !== "Potion" && !alreadyEquipped) {
+      if (item.effectProperty === 'attackPwr') {
+        const hasWeapon = player.equipped.attackPwr && player.equipped.attackPwr.length > 0;
+        if (!hasWeapon) player.equip(item);
+      } else {
+        player.equip(item);
+      }
     }
-  }
+  });
 
   if (lootedItems.length === 0) {
     createMessage(`${defeatedEnemy.name} had nothing to loot.`);
   } else {
     createMessage(`You looted: ${lootedItems.join(", ")}!`);
   }
-  
+
   updateplayerStats();
   defeatedEnemy = null;
   updateLootButtonVisibility();
@@ -529,91 +668,6 @@ function startGame() {
 }
 
 // Equipment button functions
-function handleEquip() {
-  const inventorySize = Object.keys(player.inventory).length;
-  if (inventorySize === 0) {
-    createMessage("You have no items to equip!");
-    setEquipmentButtonsVisible(false);
-    return;
-  }
-  
-  const indexInput = prompt(`Enter item number to equip (1-${inventorySize})`);
-  if (indexInput === null) {
-    setEquipmentButtonsVisible(false);
-    return;
-  }
-  
-  const index = parseInt(indexInput);
-  let itemName = null;
-  let count = 1;
-  
-  for (let name in player.inventory) {
-    if (count === index) {
-      itemName = name;
-      break;
-    }
-    count++;
-  }
-  
-  if (!itemName) {
-    createMessage("Item not found!");
-    setEquipmentButtonsVisible(false);
-    return;
-  }
-  
-  if (itemName === "Potion") {
-    createMessage("You can't equip potions!");
-    setEquipmentButtonsVisible(false);
-    return;
-  }
-  
-  const item = player.getItem(itemName);
-  player.equip(item);
-  createMessage(`${item.name} equipped! +${item.effectValue} ${item.effectProperty}`);
-  updateplayerStats();
-  setEquipmentButtonsVisible(false);
-}
-
-function handleUnequip() {
-  const equippedList = Object.values(player.equipped).flat();
-  if (equippedList.length === 0) {
-    createMessage("You have nothing equipped!");
-    setEquipmentButtonsVisible(false);
-    return;
-  }
-  
-  const inventorySize = Object.keys(player.inventory).length;
-  const indexInput = prompt(`Enter item number to unequip (1-${inventorySize})`);
-  if (indexInput === null) {
-    setEquipmentButtonsVisible(false);
-    return;
-  }
-  
-  const index = parseInt(indexInput);
-  let itemName = null;
-  let count = 1;
-  
-  for (let name in player.inventory) {
-    if (count === index) {
-      itemName = name;
-      break;
-    }
-    count++;
-  }
-  
-  if (!itemName) {
-    createMessage("Item not found!");
-    setEquipmentButtonsVisible(false);
-    return;
-  }
-  
-  const item = player.getItem(itemName);
-  player.unequip(item);
-  createMessage(`${item.name} unequipped!`);
-  updateplayerStats();
-  setEquipmentButtonsVisible(false);
-}
-
 function handleGameOver() {
   isGameOver = true;
   
@@ -622,8 +676,6 @@ function handleGameOver() {
   attackBtn.disabled = true;
   healBtn.disabled = true;
   inventoryBtn.disabled = true;
-  equipBtn.disabled = true;
-  unequipBtn.disabled = true;
   lootBtn.disabled = true;
   
   // Show restart button
@@ -668,14 +720,11 @@ function handleRestart() {
   attackBtn.disabled = false;
   healBtn.disabled = false;
   inventoryBtn.disabled = false;
-  equipBtn.disabled = false;
-  unequipBtn.disabled = false;
   lootBtn.disabled = false;
   
   // Hide restart button and extra buttons
   restartBtn.style.display = "none";
   lootBtn.style.display = "none";
-  setEquipmentButtonsVisible(false);
   
   // Start new game
   startGame();
@@ -687,6 +736,8 @@ restartBtn.addEventListener("click", handleRestart);
 attackBtn.addEventListener("click", () => handleAttack(enemy));
 healBtn.addEventListener("click", handleHeal);
 inventoryBtn.addEventListener("click", handleInventory);
-equipBtn.addEventListener("click", handleEquip);
-unequipBtn.addEventListener("click", handleUnequip);
 lootBtn.addEventListener("click", handleLoot);
+closeInventoryBtn.addEventListener("click", () => {
+  inventoryPanel.classList.add('hidden');
+  createMessage('Inventory closed.');
+});
