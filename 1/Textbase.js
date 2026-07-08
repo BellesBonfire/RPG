@@ -71,15 +71,27 @@ class Item {
   }
 }
 class Character {
-  constructor(name, hp, attackPwr, speed, inventory) {
+  constructor(name, hp, attackPwr, speed, inventory, level = 1, isPlayer = false) {
     this.name = name;
-    this.hp = hp;
-    this.maxHp = hp;
-    this.baseAttackPwr = attackPwr;
+    this.level = level;
+    this.isPlayer = isPlayer;
+    this._baseHp = hp; // store base values for scaling
+    this._baseAttackInput = attackPwr;
+    // Only the player scales with level; enemies keep their base stats
+    if (this.isPlayer) {
+      this.maxHp = this._baseHp * this.level;
+      this.baseAttackPwr = this._baseAttackInput * this.level;
+    } else {
+      this.maxHp = this._baseHp;
+      this.baseAttackPwr = this._baseAttackInput;
+    }
+    this.hp = this.maxHp;
     this.baseSpeed = speed;
+    this.xp = 0;
+    this.xpToNext = this.calculateXpToNext();
     this.inventory = {}; // { itemName: { item: Item, quantity: number }, ... }
     this.equipped = {}; // { attackPwr: [item], speed: [item], etc }
-    
+
     // Convert input array to stacked format
     if (Array.isArray(inventory)) {
       for (let item of inventory) {
@@ -127,6 +139,41 @@ class Character {
     }
     return total;
   }
+
+  calculateXpToNext() {
+    // slower XP curve: require more XP per level
+    return 250 * this.level;
+  }
+
+  recalcStatsForLevel() {
+    if (!this.isPlayer) return;
+    this.maxHp = this._baseHp * this.level;
+    // keep hp proportional to new max
+    const hpRatio = this.hp / Math.max(1, this.maxHp);
+    // gentler attack growth: add a small flat increase per level
+    this.baseAttackPwr = this._baseAttackInput + Math.floor((this.level - 1) * 1);
+    this.xpToNext = this.calculateXpToNext();
+    this.hp = Math.round(this.maxHp * hpRatio);
+    if (this.hp > this.maxHp) this.hp = this.maxHp;
+  }
+
+  gainXp(amount) {
+    if (!this.isPlayer) return false;
+    if (this.level >= 10) return false; // already at cap
+    this.xp += amount;
+    let leveled = false;
+    while (this.xp >= this.xpToNext && this.level < 10) {
+      this.xp -= this.xpToNext;
+      this.level += 1;
+      this.recalcStatsForLevel();
+      leveled = true;
+    }
+    if (this.level >= 10) {
+      this.xp = 0;
+      this.xpToNext = 0;
+    }
+    return leveled;
+  }
   
   equip(item) {
     if (!this.equipped[item.effectProperty]) {
@@ -170,12 +217,17 @@ const dragonClaw = new Item("Dragon Claw", "A sharp claw", "speed", 15);
 const potion = new Item("Potion", "Heals 15 HP", "hp", 15);
 //const boots = new Item('Boots', 'Increases speed', 'speed', 5)
 
-const player = new Character("Adventurer", 100, 15, 15, [sword, potion, potion]);
+const player = new Character("Adventurer", 100, 15, 15, [sword, potion, potion], 1, true);
 
-const kobold = new Character("Kobold", 10, 5, 10, [dagger, potion]);
-const goblin = new Character("Goblin", 20, 10, 10, [club, potion]);
-const orc = new Character("Orc", 30, 15, 20, [axe, potion]);
-const dragon = new Character("Dragon", 100, 20, 50, [dragonClaw, potion, potion, potion]);
+// Assign levels to enemies so stronger foes appear later
+const kobold = new Character("Kobold", 10, 5, 10, [dagger, potion], 1);
+kobold.minLevel = 1; kobold.maxLevel = 2; kobold.evolveAfter = false;
+const goblin = new Character("Goblin", 20, 10, 10, [club, potion], 2);
+goblin.minLevel = 2; goblin.maxLevel = 4; goblin.evolveAfter = true;
+const orc = new Character("Orc", 30, 15, 20, [axe, potion], 3);
+orc.minLevel = 3; orc.maxLevel = 6; orc.evolveAfter = true;
+const dragon = new Character("Dragon", 100, 20, 50, [dragonClaw, potion, potion, potion], 6);
+dragon.minLevel = 6; dragon.maxLevel = 10; dragon.evolveAfter = false;
 
 const enemies = [kobold, goblin, orc, dragon];
 let enemy = null;
@@ -188,7 +240,16 @@ function updateplayerStats() {
   const totalItems = Object.keys(player.inventory).length;
   const potionCount = player.getItemQuantity("Potion");
   const equippedItems = Object.values(player.equipped).flat().map(item => item.name).join(", ") || "None";
+  const xpText = player.level < 10 ? `${player.xp}/${player.xpToNext}` : "MAX";
+  const xpPercent = player.level < 10 && player.xpToNext > 0 ? Math.min(100, Math.round((player.xp / player.xpToNext) * 100)) : 100;
   playerHealth.innerHTML = `
+    <div><strong>Level:</strong> ${player.level}</div>
+    <div class="xp-container">
+      <div class="xp-bar">
+        <div id="xpFill" class="xp-fill" style="width: ${xpPercent}%;"></div>
+      </div>
+      <div class="xp-label">XP: ${xpText} (${xpPercent}%)</div>
+    </div>
     <div><strong>Name:</strong> ${player.name}</div>
     <div><strong>HP:</strong> ${player.hp}/${player.maxHp}</div>
     <div><strong>Attack:</strong> ${player.getAttackPwr()}</div>
@@ -221,6 +282,22 @@ function updateLootButtonVisibility() {
   }
 }
 
+function updateActionButtonStates() {
+  // Move available when not in encounter and no defeated enemy waiting
+  moveBtn.disabled = isGameOver || inEncounter || Boolean(defeatedEnemy);
+  // Attack only when in encounter
+  attackBtn.disabled = isGameOver || !inEncounter;
+  // Heal when player has potions and not at full HP
+  healBtn.disabled = isGameOver || player.getItemQuantity('Potion') === 0 || player.hp === player.maxHp;
+  // Inventory always allowed unless game over
+  inventoryBtn.disabled = !!isGameOver;
+  // Equip/unequip handled separately when inventory shown
+  equipBtn.disabled = isGameOver;
+  unequipBtn.disabled = isGameOver;
+  // Loot only when defeated enemy exists
+  lootBtn.disabled = isGameOver || !defeatedEnemy;
+}
+
 function setEquipmentButtonsVisible(visible) {
   equipBtn.style.display = visible ? "inline-block" : "none";
   unequipBtn.style.display = visible ? "inline-block" : "none";
@@ -241,8 +318,27 @@ function handleMove() {
 
   if (randomChance > 0.5) {
     createMessage("Something stirs in the bushes!");
-    const randomIndex = Math.floor(Math.random() * enemies.length);
-    enemy = enemies[randomIndex];
+    // Pick an enemy appropriate for the player's level. Allow up to +1 level difference.
+    // Prefer enemies whose min/max ranges include player level
+    let possible = enemies.filter(e => (player.level >= (e.minLevel || 1)) && (player.level <= (e.maxLevel || 10)));
+    // If none found, allow evolved versions for enemies with evolveAfter set
+    if (possible.length === 0) {
+      const evolvable = enemies.filter(e => e.evolveAfter && player.level > (e.maxLevel || 1));
+      if (evolvable.length > 0) {
+        // pick a random evolvable enemy and create a slightly stronger copy
+        const template = evolvable[Math.floor(Math.random() * evolvable.length)];
+        const over = player.level - (template.maxLevel || 1);
+        const scale = 1 + Math.min(0.5, 0.08 * over); // modest scaling
+        enemy = new Character(template.name, Math.round(template._baseHp * scale), Math.round(template._baseAttackInput * scale), template.baseSpeed, Object.keys(template.inventory).map(k => template.inventory[k].item));
+        enemy.minLevel = template.minLevel; enemy.maxLevel = template.maxLevel; enemy.evolveAfter = template.evolveAfter;
+      } else {
+        // fallback to any enemy
+        possible = enemies;
+        enemy = possible[Math.floor(Math.random() * possible.length)];
+      }
+    } else {
+      enemy = possible[Math.floor(Math.random() * possible.length)];
+    }
     handleEncounter(enemy);
     updateEnemyStats();
   } else {
@@ -250,23 +346,18 @@ function handleMove() {
   }
   defeatedEnemy = null;
   updateLootButtonVisibility();
+  updateActionButtonStates();
 }
 
 //append puts at the end
 //prepend puts at the start
 
 function handleEncounter(enemy) {
-  // Reset enemy HP to their original value based on type
-  const originalHPs = {
-    "Kobold": 10,
-    "Goblin": 20,
-    "Orc": 30,
-    "Dragon": 100
-  };
-  enemy.hp = originalHPs[enemy.name];
-  
+  // Reset enemy HP to their max (accounts for level scaling)
+  enemy.hp = enemy.maxHp;
   createMessage(`${enemy.name} comes at you!`);
   inEncounter = true;
+  updateActionButtonStates();
 }
 
 function handleAttack(enemy) {
@@ -297,10 +388,15 @@ function handleAttack(enemy) {
     if (enemy.hp <= 0) {
       inEncounter = false;
       createMessage(`${enemy.name} has been defeated!`);
+      const xpGain = Math.max(5, Math.floor(enemy.level * 20));
+      const leveled = player.gainXp(xpGain);
+      createMessage(`Gained ${xpGain} XP${leveled ? ' and leveled up!' : ''}`);
+      updateplayerStats();
       createMessage("You can now loot the defeated enemy!");
       defeatedEnemy = enemy;
       enemy = null;
       updateLootButtonVisibility();
+      updateActionButtonStates();
       return;
     } else {
       enemy.attack(player);
@@ -323,10 +419,15 @@ function handleAttack(enemy) {
       if (enemy.hp <= 0) {
         inEncounter = false;
         createMessage(`${enemy.name} has been defeated!`);
+        const xpGain = Math.max(5, Math.floor(enemy.level * 20));
+        const leveled = player.gainXp(xpGain);
+        createMessage(`Gained ${xpGain} XP${leveled ? ' and leveled up!' : ''}`);
+        updateplayerStats();
         createMessage("You can now loot the defeated enemy!");
         defeatedEnemy = enemy;
         enemy = null;
         updateLootButtonVisibility();
+        updateActionButtonStates();
       }
     }
   }
@@ -378,6 +479,7 @@ function handleHeal() {
 
   player.removeItem("Potion", 1);
   updateplayerStats();
+  updateActionButtonStates();
 
   createMessage("Player has been healed");
   console.log(`Player HP after healing: ${player.hp}`);
@@ -415,6 +517,7 @@ function handleLoot() {
   updateplayerStats();
   defeatedEnemy = null;
   updateLootButtonVisibility();
+  updateActionButtonStates();
 }
 
 function startGame() {
@@ -422,6 +525,7 @@ function startGame() {
     `Welcome, ${player.name}! You are about to embark on a journey through the forest. Beware of the creatures that lurk in the shadows!`,
   );
   updateplayerStats();
+  updateActionButtonStates();
 }
 
 // Equipment button functions
@@ -537,6 +641,10 @@ function handleRestart() {
   defeatedEnemy = null;
   
   // Reset player
+  player.level = 1;
+  player.xp = 0;
+  player.xpToNext = player.calculateXpToNext();
+  player.recalcStatsForLevel();
   player.hp = player.maxHp;
   player.inventory = {};
   player.equipped = {};
@@ -544,10 +652,10 @@ function handleRestart() {
   player.addItem(potion, 2);
   
   // Reset enemies
-  kobold.hp = 10;
-  goblin.hp = 20;
-  orc.hp = 30;
-  dragon.hp = 100;
+  kobold.hp = kobold.maxHp;
+  goblin.hp = goblin.maxHp;
+  orc.hp = orc.maxHp;
+  dragon.hp = dragon.maxHp;
   
   // Clear log
   log.innerHTML = "";
@@ -571,6 +679,7 @@ function handleRestart() {
   
   // Start new game
   startGame();
+  updateActionButtonStates();
 }
 
 moveBtn.addEventListener("click", handleMove);
