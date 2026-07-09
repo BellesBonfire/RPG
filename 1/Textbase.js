@@ -167,15 +167,15 @@ class Character {
     this.name = name;
     this.level = level;
     this.isPlayer = isPlayer;
-    this._baseHp = hp; // store base values for scaling
-    this._baseAttackInput = attackPwr;
+    this.baseHp = hp; // store base values for scaling
+    this.baseAttackInput = attackPwr;
     // Only the player scales with level; enemies keep their base stats
     if (this.isPlayer) {
-      this.maxHp = this._baseHp * this.level;
-      this.baseAttackPwr = this._baseAttackInput * this.level;
+      this.maxHp = this.baseHp * this.level;
+      this.baseAttackPwr = this.baseAttackInput * this.level;
     } else {
-      this.maxHp = this._baseHp;
-      this.baseAttackPwr = this._baseAttackInput;
+      this.maxHp = this.baseHp;
+      this.baseAttackPwr = this.baseAttackInput;
     }
     this.hp = this.maxHp;
     this.baseSpeed = speed;
@@ -239,11 +239,11 @@ class Character {
 
   recalcStatsForLevel() {
     if (!this.isPlayer) return;
-    this.maxHp = this._baseHp * this.level;
+    this.maxHp = this.baseHp * this.level;
     // keep hp proportional to new max
     const hpRatio = this.hp / Math.max(1, this.maxHp);
     // gentler attack growth: add a small flat increase per level
-    this.baseAttackPwr = this._baseAttackInput + Math.floor((this.level - 1) * 1);
+    this.baseAttackPwr = this.baseAttackInput + Math.floor((this.level - 1) * 1);
     this.xpToNext = this.calculateXpToNext();
     this.hp = Math.round(this.maxHp * hpRatio);
     if (this.hp > this.maxHp) this.hp = this.maxHp;
@@ -254,10 +254,19 @@ class Character {
     if (this.level >= 10) return false; // already at cap
     this.xp += amount;
     let leveled = false;
+    // When leveling up, restore a portion of max HP each level
+    const levelupHealpercent = 0.30; // 30% of max HP regained per level
     while (this.xp >= this.xpToNext && this.level < 10) {
       this.xp -= this.xpToNext;
       this.level += 1;
       this.recalcStatsForLevel();
+      const healAmount = Math.round(this.maxHp * levelupHealpercent);
+      const prevHp = this.hp;
+      this.hp = Math.min(this.hp + healAmount, this.maxHp);
+      const actualHealed = this.hp - prevHp;
+      if (actualHealed > 0) {
+        createMessage(`${this.name} regained ${actualHealed} HP from leveling!`);
+      }
       leveled = true;
     }
     if (this.level >= 10) {
@@ -338,6 +347,38 @@ function cloneItemTemplate(template) {
   return new Item(template.name, template.description, template.effectProperty, template.effectValue);
 }
 
+// Create an Item from a template and scale its effectValue with player level
+function cloneItemTemplateScaled(template, playerLevel) {
+  const baseValue = template.effectValue || 0;
+  const minLevel = template.minLevel || 1;
+  const levelDiff = Math.max(0, playerLevel - minLevel);
+  // scale up item power modestly per level above its minLevel
+  const scalePerlevel = 0.03; // 3% per level above min
+  const scaleFactor = 1 + levelDiff * scalePerlevel;
+  const scaledValue = Math.max(0, Math.round(baseValue * scaleFactor));
+  return new Item(template.name, template.description, template.effectProperty, scaledValue);
+}
+
+// Create a new enemy Character from a template, scaling stats with player level
+function createEnemyFromTemplate(template, playerLevel) {
+  const baseHp = template.baseHp || template.maxHp || 10;
+  const baseAtk = template.baseAttackInput || template.baseAttackPwr || 5;
+  const levelDiff = Math.max(0, playerLevel - (template.level || 1));
+  const isBoss = template.lootType === 'boss';
+  const scalePerlevel = isBoss ? 0.03 : 0.08; // bosses scale more gently
+  const scale = 1 + levelDiff * scalePerlevel;
+  const hp = Math.max(1, Math.round(baseHp * scale));
+  const atk = Math.max(1, Math.round(baseAtk * scale));
+  const speed = template.baseSpeed || template.baseSpeed === 0 ? template.baseSpeed : (template.baseSpeed || 10);
+  const invItems = template.inventory ? Object.keys(template.inventory).map(k => template.inventory[k].item) : [];
+  const enemyChar = new Character(template.name, hp, atk, speed, invItems, template.level || 1);
+  enemyChar.minLevel = template.minLevel;
+  enemyChar.maxLevel = template.maxLevel;
+  enemyChar.evolveAfter = template.evolveAfter;
+  enemyChar.lootType = template.lootType;
+  return enemyChar;
+}
+
 function getLootPool(level, category) {
   return lootTemplates[category].filter(item => level >= item.minLevel && level <= item.maxLevel || level >= item.maxLevel);
 }
@@ -345,31 +386,57 @@ function getLootPool(level, category) {
 function generateLootForEnemy(enemy, playerLevel) {
   const loot = [];
   const level = Math.min(Math.max(playerLevel, 1), 10);
+
+  // Preferred drops per enemy name
+  const preferred = {
+    'Dragon': [
+      { name: 'Dragon Claw', description: 'A sharp claw offering a speed boost.', effectProperty: 'speed', effectValue: 15, minLevel: 5, maxLevel: 10 }
+    ],
+    'Orc': [
+      { name: 'Axe', description: 'A heavy blade', effectProperty: 'attackPwr', effectValue: 7, minLevel: 3, maxLevel: 10 },
+      { name: 'Battle Axe', description: 'A heavy battle axe', effectProperty: 'attackPwr', effectValue: 9, minLevel: 4, maxLevel: 10 }
+    ],
+    'Goblin': [
+      { name: 'Club', description: 'A blunt weapon', effectProperty: 'attackPwr', effectValue: 4, minLevel: 1, maxLevel: 4 },
+      { name: 'Dagger', description: 'A small blade', effectProperty: 'attackPwr', effectValue: 3, minLevel: 1, maxLevel: 3 }
+    ],
+    'Kobold': [
+      { name: 'Dagger', description: 'A small blade', effectProperty: 'attackPwr', effectValue: 2, minLevel: 1, maxLevel: 2 }
+    ]
+  };
+
   const weaponPool = getLootPool(level, 'weapons');
   const accessoryPool = getLootPool(level, 'accessories');
+
+  // Guarantee at least one preferred drop if defined
+  if (preferred[enemy.name]) {
+    const pref = randomChoice(preferred[enemy.name]);
+    loot.push(cloneItemTemplateScaled(pref, playerLevel));
+  }
 
   const dropCount = enemy.name === 'Kobold' ? randomBetween(1, 2) : enemy.name === 'Goblin' ? randomBetween(1, 2) : enemy.name === 'Orc' ? randomBetween(2, 3) : randomBetween(1, 2);
 
   for (let i = 0; i < dropCount; i++) {
     if (Math.random() < 0.7 && weaponPool.length > 0) {
-      loot.push(cloneItemTemplate(randomChoice(weaponPool)));
+      loot.push(cloneItemTemplateScaled(randomChoice(weaponPool), playerLevel));
     } else if (accessoryPool.length > 0) {
-      loot.push(cloneItemTemplate(randomChoice(accessoryPool)));
+      loot.push(cloneItemTemplateScaled(randomChoice(accessoryPool), playerLevel));
     }
   }
 
+  // Potions remain common
   if (Math.random() < 0.8) {
-    loot.push(cloneItemTemplate({ name: 'Potion', description: 'Heals 15 HP', effectProperty: 'hp', effectValue: 15 }));
+    loot.push(cloneItemTemplateScaled({ name: 'Potion', description: 'Heals 15 HP', effectProperty: 'hp', effectValue: 15, minLevel: 1, maxLevel: 10 }, playerLevel));
   }
 
   if (loot.length === 0) {
-    loot.push(cloneItemTemplate(randomChoice(weaponPool.length ? weaponPool : lootTemplates.weapons)));
+    loot.push(cloneItemTemplateScaled(randomChoice(weaponPool.length ? weaponPool : lootTemplates.weapons), playerLevel));
   }
 
   return loot;
 }
 
-const player = new Character("Adventurer", 100, 15, 15, [sword, potion, potion, dragonClaw], 1, true);
+const player = new Character("Adventurer", 100, 15, 15, [sword, potion, potion], 1, true);
 
 // Assign levels to enemies so stronger foes appear later
 const kobold = new Character("Kobold", 10, 5, 10, [dagger, potion], 1);
@@ -476,17 +543,16 @@ function handleMove() {
       if (evolvable.length > 0) {
         // pick a random evolvable enemy and create a slightly stronger copy
         const template = evolvable[Math.floor(Math.random() * evolvable.length)];
-        const over = player.level - (template.maxLevel || 1);
-        const scale = 1 + Math.min(0.5, 0.08 * over); // modest scaling
-        enemy = new Character(template.name, Math.round(template._baseHp * scale), Math.round(template._baseAttackInput * scale), template.baseSpeed, Object.keys(template.inventory).map(k => template.inventory[k].item));
-        enemy.minLevel = template.minLevel; enemy.maxLevel = template.maxLevel; enemy.evolveAfter = template.evolveAfter;
+        enemy = createEnemyFromTemplate(template, player.level);
       } else {
         // fallback to any enemy
         possible = enemies;
-        enemy = possible[Math.floor(Math.random() * possible.length)];
+        const template = possible[Math.floor(Math.random() * possible.length)];
+        enemy = createEnemyFromTemplate(template, player.level);
       }
     } else {
-      enemy = possible[Math.floor(Math.random() * possible.length)];
+      const template = possible[Math.floor(Math.random() * possible.length)];
+      enemy = createEnemyFromTemplate(template, player.level);
     }
     handleEncounter(enemy);
     updateEnemyStats();
