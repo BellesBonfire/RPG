@@ -3,6 +3,7 @@
 //const log3 = document.querySelectorAll('.log3')
 //const log4 = document.getElementsByClassName('log4')
 //document.querySelector('p')
+// story pitch: you are a boy named Silas searching for his parents, who were lost in the wilderness after going camping for their honeymoon(seriously, who does that?) along the way, you encounter a fey. she sends you into a spiraling maze, where you are to find your way out while learning more about her along the way. when the time comes to kill her, you may choose to spare her, but nobody leaves this place unscathed...
 
 const log = document.getElementById("log");
 const moveBtn = document.getElementById("moveBtn");
