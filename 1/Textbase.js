@@ -4,6 +4,10 @@
 //const log4 = document.getElementsByClassName('log4')
 //document.querySelector('p')
 // story pitch: you are a boy named Silas searching for his parents, who were lost in the wilderness after going camping for their honeymoon(seriously, who does that?) along the way, you encounter a fey. she sends you into a spiraling maze, where you are to find your way out while learning more about her along the way. when the time comes to kill her, you may choose to spare her, but nobody leaves this place unscathed...
+// what to implement.
+// want faerie queen to be spareable or killable with a different outcome for either result
+// remove faerie queen from loot table
+// make lvl -> health buff lower
 
 const log = document.getElementById("log");
 const moveBtn = document.getElementById("moveBtn");
@@ -235,7 +239,7 @@ class Character {
 
   calculateXpToNext() {
     // slower XP curve: require more XP per level
-    return 150 * this.level;
+    return 10 * this.level;
   }
 
   recalcStatsForLevel() {
@@ -325,8 +329,8 @@ const battleAxe = new Item("Battle Axe", "A heavy battle axe", "attackPwr", 9);
 const lootTemplates = {
   weapons: [
     { name: "Rusty Dagger", description: "A cheap dagger.", effectProperty: "attackPwr", effectValue: 2, minLevel: 1, maxLevel: 2 },
-    { name: "Iron Club", description: "A club with a little extra heft.", effectProperty: "attackPwr", effectValue: 4, minLevel: 1, maxLevel: 3 },
-    { name: "Steel Sword", description: "A sturdier sword.", effectProperty: "attackPwr", effectValue: 6, minLevel: 2, maxLevel: 5 },
+    { name: "Iron Club", description: "A club with a little extra heft.", effectProperty: "attackPwr", effectValue: 4, minLevel: 2, maxLevel: 3 },
+    { name: "Steel Sword", description: "A sturdier sword.", effectProperty: "attackPwr", effectValue: 6, minLevel: 4, maxLevel: 5 },
     { name: "Battle Axe", description: "A heavy battle axe.", effectProperty: "attackPwr", effectValue: 9, minLevel: 4, maxLevel: 10 },
   ],
   accessories: [
@@ -450,10 +454,13 @@ const orc = new Character("Orc", 30, 15, 20, [axe, potion], 3);
 orc.minLevel = 3; orc.maxLevel = 6; orc.evolveAfter = true;
 orc.lootType = 'strong';
 const dragon = new Character("Dragon", 100, 20, 50, [dragonClaw, potion, potion, potion], 6);
-dragon.minLevel = 6; dragon.maxLevel = 10; dragon.evolveAfter = false;
+dragon.minLevel = 6; dragon.maxLevel = 9; dragon.evolveAfter = true;
 dragon.lootType = 'boss';
+const faerieQueen = new Character("Faerie Queen", 500, 50, 30, [], 10);
+faerieQueen.minLevel = 10; faerieQueen.maxLevel = 10; faerieQueen.evolveAfter = false;
+faerieQueen.lootType = 'boss';
 
-const enemies = [kobold, goblin, orc, dragon];
+const enemies = [kobold, goblin, orc, dragon, faerieQueen];
 let enemy = null;
 let defeatedEnemy = null;
 
