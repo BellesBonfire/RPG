@@ -9,6 +9,8 @@
 // remove faerie queen from loot table
 // make lvl -> health buff lower
 
+//lose condition isn't working, heal button stops, when fighting the faeire queen.
+
 const log = document.getElementById("log");
 const moveBtn = document.getElementById("moveBtn");
 const attackBtn = document.getElementById("attackBtn");
